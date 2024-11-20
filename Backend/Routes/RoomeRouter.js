@@ -127,11 +127,12 @@ roomrouter.post('/leave', verifyToken, async (req, res) => {
 });
 
 // Start the drawing phase: randomly select a player to draw and assign a word
+
 roomrouter.post('/startDrawing', verifyToken, async (req, res) => {
   const { roomName } = req.body;
 
   try {
-    // Find the room
+    // Find the room and populate the players
     const room = await Room.findOne({ roomName }).populate('players');
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
@@ -147,7 +148,7 @@ roomrouter.post('/startDrawing', verifyToken, async (req, res) => {
     const randomWord = wordsList[Math.floor(Math.random() * wordsList.length)];
 
     // Set the drawing player and word
-    room.drawingPlayer = drawingPlayer._id;
+    room.drawingPlayer = drawingPlayer._id; // Ensure this is set to a valid player ID
     room.currentWord = randomWord;
     room.gameState = 'drawing';
 
@@ -165,5 +166,87 @@ roomrouter.post('/startDrawing', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+
+// Save the drawing state
+roomrouter.post('/saveDrawing', verifyToken, async (req, res) => {
+  const { roomName, drawingState } = req.body;
+  const userId = req.userId;  // Extract user ID from token
+
+  if (!roomName || !drawingState) {
+    return res.status(400).json({ message: 'Room name and drawing state are required' });
+  }
+
+  try {
+    // Find the room by room name
+    const room = await Room.findOne({ roomName });
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    // Check if the drawingPlayer is set
+    if (!room.drawingPlayer) {
+      return res.status(400).json({ message: 'No player has been assigned to draw' });
+    }
+
+    // Check if the user is the current drawing player
+    if (room.drawingPlayer.toString() !== userId) {
+      return res.status(403).json({ message: 'You are not authorized to update the drawing state' });
+    }
+
+    // Update the drawing state in the room
+    room.drawingState = drawingState;
+    await room.save();
+
+    // Emit the drawing update to all connected users in the room
+    req.app.get('io').to(roomName).emit('drawingUpdate', { drawingState });
+
+    // Respond with a success message
+    res.status(200).json({ message: 'Drawing state updated successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+roomrouter.post('/guessWord', verifyToken, async (req, res) => {
+  const { roomName, guess } = req.body;
+  const userId = req.userId;  // Extract user ID from token
+
+  if (!roomName || !guess) {
+    return res.status(400).json({ message: 'Room name and guess are required' });
+  }
+
+  try {
+    // Find the room by room name
+    const room = await Room.findOne({ roomName });
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    // Check if the current word matches the guess
+    if (room.currentWord === guess) {
+      // Update the game state to 'waiting' and clear the drawing state
+      room.gameState = 'waiting';
+      room.drawingState = null;
+      await room.save();
+
+      // Emit the word guess to all connected users in the room
+      req.app.get('io').to(roomName).emit('wordGuessed', { guess });
+
+      // Respond with a success message
+      res.status(200).json({ message: 'Word guessed correctly!' });
+    } else {
+      res.status(400).json({ message: 'Incorrect guess' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+
+
 
 module.exports = roomrouter;
