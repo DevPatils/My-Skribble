@@ -46,6 +46,7 @@ roomrouter.post('/create', verifyToken, async (req, res) => {
 });
 
 // Join an existing room (with password verification)
+// Join an existing room (with password verification and Socket.IO integration)
 roomrouter.post('/join', verifyToken, async (req, res) => {
   const { roomName, password } = req.body;
   const userId = req.userId;  // Get user ID from the token
@@ -75,12 +76,53 @@ roomrouter.post('/join', verifyToken, async (req, res) => {
     room.players.push(userId);
     await room.save();
 
+    // Emit to the room via Socket.IO that the user joined
+    const socket = req.app.get('io').sockets.sockets.get(userId);
+    if (socket) {
+      socket.join(roomName);
+      req.app.get('io').to(roomName).emit('message', `${socket.id} has joined the room`);
+    }
+
     res.status(200).json(room);
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Leave a room (with Socket.IO integration)
+roomrouter.post('/leave', verifyToken, async (req, res) => {
+  const { roomName, userId } = req.body;
+
+  if (!roomName || !userId) {
+    return res.status(400).json({ message: 'Room name and user ID are required' });
+  }
+
+  try {
+    // Find the room
+    const room = await Room.findOne({ roomName });
+    if (!room) {
+      return res.status(404).json({ message: 'Room not found' });
+    }
+
+    // Remove the user from the room
+    room.players = room.players.filter(player => player.toString() !== userId);
+    await room.save();
+
+    // Emit to the room via Socket.IO that the user left
+    const socket = req.app.get('io').sockets.sockets.get(userId);
+    if (socket) {
+      socket.leave(roomName);
+      req.app.get('io').to(roomName).emit('message', `${socket.id} has left the room`);
+    }
+
+    res.status(200).json({ message: 'User left the room successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 
 // Get room details (players and current state)
 roomrouter.get('/:roomName', verifyToken, async (req, res) => {
@@ -100,31 +142,7 @@ roomrouter.get('/:roomName', verifyToken, async (req, res) => {
   }
 });
 
-// Leave a room (e.g., if a player disconnects or exits)
-roomrouter.post('/leave', verifyToken, async (req, res) => {
-  const { roomName, userId } = req.body;
 
-  if (!roomName || !userId) {
-    return res.status(400).json({ message: 'Room name and user ID are required' });
-  }
-
-  try {
-    // Find the room
-    const room = await Room.findOne({ roomName });
-    if (!room) {
-      return res.status(404).json({ message: 'Room not found' });
-    }
-
-    // Remove the user from the room
-    room.players = room.players.filter(player => player.toString() !== userId);
-    await room.save();
-
-    res.status(200).json({ message: 'User left the room successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
 
 // Start the drawing phase: randomly select a player to draw and assign a word
 
@@ -226,6 +244,11 @@ roomrouter.post('/guessWord', verifyToken, async (req, res) => {
 
     // Check if the current word matches the guess
     if (room.currentWord === guess) {
+      // Ensure the player is not the one currently drawing
+      if (room.drawingPlayer.toString() === userId) {
+        return res.status(403).json({ message: 'You cannot guess the word while drawing' });
+      }
+
       // Update the game state to 'waiting' and clear the drawing state
       room.gameState = 'waiting';
       room.drawingState = null;
