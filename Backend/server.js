@@ -1,5 +1,4 @@
 require('dotenv').config();  // Load environment variables from .env file
-const mongoose = require('mongoose');
 const express = require('express');
 const cors = require('cors');
 const http = require('http');
@@ -11,66 +10,64 @@ const connectDB = require('./config/db');
 // Initialize the app
 const app = express();
 
-// Create a server for Express (for HTTP API routes)
-const apiServer = http.createServer(app);
-
-// Create a separate server for Socket.IO
-const socketServer = http.createServer();
-
-// Attach Socket.IO to the socket server
-const io = new Server(socketServer, {
-  cors: {
-    origin: '*', // Allow all origins (adjust for security)
-    methods: ['GET', 'POST'],
-  },
-});
-
-// Attach Socket.IO to the Express app
-app.set('io', io);
-
-// Middleware for Express app
+// Middleware
+app.use(cors({
+  origin: '*', // Adjust origin for production
+  methods: ['GET', 'POST'],
+}));
 app.use(express.json());
-app.use(cors());
 
 // Connect to MongoDB
 connectDB();
 
-// Routes for the Express app (API routes)
+// API Routes
 app.use('/api/users', userRoutes);
 app.use('/api/rooms', roomRoutes);
 
-// Socket.IO logic
-io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+// Create an HTTP server
+const server = http.createServer(app);
 
-  // Join room
+// Initialize Socket.IO and attach to the HTTP server
+const io = new Server(server, {
+  cors: {
+    origin: '*', // Allow all origins (adjust for production security)
+    methods: ['GET', 'POST'],
+  },
+});
+
+// Attach the Socket.IO instance to the app for use in routes
+app.set('io', io);
+
+// Socket.IO Logic
+io.on('connection', (socket) => {
+  console.log(`A user connected: ${socket.id}`);
+
+  // Join a specific room
   socket.on('joinRoom', (roomName) => {
     socket.join(roomName);
-    console.log(`User ${socket.id} joined room ${roomName}`);
-    io.to(roomName).emit('message', `User ${socket.id} joined the room`);
+    console.log(`${socket.id} joined room: ${roomName}`);
+    io.to(roomName).emit('message', `${socket.id} has joined the room`);
   });
 
-  // Drawing updates
+  // Real-time drawing updates
   socket.on('drawingUpdate', (data) => {
-    io.to(data.roomName).emit('drawingUpdate', data.drawingState);
+    const { roomName, drawingState } = data;
+    if (!roomName || !drawingState) {
+      console.error('Invalid drawing update data:', data);
+      return;
+    }
+    io.to(roomName).emit('drawingUpdate', { drawingState });
+    console.log(`Drawing update sent to room ${roomName}`);
   });
 
   // Handle disconnection
   socket.on('disconnect', () => {
-    console.log('A user disconnected:', socket.id);
+    console.log(`User disconnected: ${socket.id}`);
   });
 });
 
-
-
-// Start the Express API server
+// Start the server
 const apiPort = process.env.PORT || 5000;
-apiServer.listen(apiPort, () => {
-  console.log(`API server running on http://localhost:${apiPort}`);
-});
-
-// Start the Socket.IO server
-const socketPort = process.env.SOCKET_PORT || 5001;
-socketServer.listen(socketPort, () => {
-  console.log(`Socket.IO server running on http://localhost:${socketPort}`);
+server.listen(apiPort, () => {
+  console.log(`API and Socket.IO server running on http://localhost:${apiPort}`);
 });

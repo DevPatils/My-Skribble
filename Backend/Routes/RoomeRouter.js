@@ -45,19 +45,29 @@ roomrouter.post('/create', verifyToken, async (req, res) => {
   }
 });
 
+roomrouter.get('/all', async (req, res) => { 
+  try {
+    const rooms = await Room.find();
+    res.status(200).json(rooms);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Join an existing room (with password verification)
 // Join an existing room (with password verification and Socket.IO integration)
 roomrouter.post('/join', verifyToken, async (req, res) => {
-  const { roomName, password } = req.body;
+  const { roomId, password } = req.body;  // Extract roomId from the body
   const userId = req.userId;  // Get user ID from the token
 
-  if (!roomName || !userId || !password) {
-    return res.status(400).json({ message: 'Room name, user ID, and password are required' });
+  if (!roomId || !userId || !password) {
+    return res.status(400).json({ message: 'Room ID, user ID, and password are required' });
   }
 
   try {
-    // Find the room by name
-    const room = await Room.findOne({ roomName });
+    // Find the room by ID
+    const room = await Room.findById(roomId);
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
     }
@@ -79,8 +89,8 @@ roomrouter.post('/join', verifyToken, async (req, res) => {
     // Emit to the room via Socket.IO that the user joined
     const socket = req.app.get('io').sockets.sockets.get(userId);
     if (socket) {
-      socket.join(roomName);
-      req.app.get('io').to(roomName).emit('message', `${socket.id} has joined the room`);
+      socket.join(roomId);
+      req.app.get('io').to(roomId).emit('message', `${socket.id} has joined the room`);
     }
 
     res.status(200).json(room);
@@ -89,6 +99,7 @@ roomrouter.post('/join', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 // Leave a room (with Socket.IO integration)
 roomrouter.post('/leave', verifyToken, async (req, res) => {
@@ -124,13 +135,15 @@ roomrouter.post('/leave', verifyToken, async (req, res) => {
 });
 
 
+
+
 // Get room details (players and current state)
-roomrouter.get('/:roomName', verifyToken, async (req, res) => {
-  const { roomName } = req.params;
+roomrouter.get('getroom/:id', verifyToken, async (req, res) => {
+  const { id } = req.params;
 
   try {
     // Find the room and populate the players
-    const room = await Room.findOne({ roomName }).populate('players', 'username');
+    const room = await Room.findOne({ id }).populate('players', 'username');
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
     }
@@ -189,7 +202,7 @@ roomrouter.post('/startDrawing', verifyToken, async (req, res) => {
 // Save the drawing state
 roomrouter.post('/saveDrawing', verifyToken, async (req, res) => {
   const { roomName, drawingState } = req.body;
-  const userId = req.userId;  // Extract user ID from token
+  const userId = req.userId; // Extract user ID from token
 
   if (!roomName || !drawingState) {
     return res.status(400).json({ message: 'Room name and drawing state are required' });
