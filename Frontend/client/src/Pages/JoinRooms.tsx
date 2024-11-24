@@ -21,6 +21,7 @@ const JoinRooms: React.FC = () => {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
   const [currentRoomId, setCurrentRoomId] = useState<string | null>(null); // To keep track of the current room the user is in
+  const [errorMessage, setErrorMessage] = useState<string>(''); // To store custom error messages
 
   const authToken = localStorage.getItem('auth-token');
   const navigate = useNavigate();
@@ -44,20 +45,19 @@ const JoinRooms: React.FC = () => {
       setError('You need to log in and enter a password to join a room');
       return;
     }
-  
+
     try {
       await axios.post(
         'http://localhost:5000/api/rooms/join',
         { roomId: selectedRoomId, password },
         { headers: { 'auth-token': authToken } }
       );
-  
+
       // Set the current room ID after successful join
       setCurrentRoomId(selectedRoomId);
-  
+      console.log(currentRoomId);
       // Redirect to the game page with the room ID
       navigate(`/game/${selectedRoomId}`);
-      console.log(currentRoomId)
     } catch (err) {
       if (axios.isAxiosError(err) && err.response) {
         // Handle specific error when the user is already in the room
@@ -71,10 +71,9 @@ const JoinRooms: React.FC = () => {
         setError('Failed to join room');
       }
     }
-  
+
     setShowModal(false);
   };
-  
 
   const handleLeaveRoom = async (roomId: string) => {
     if (!authToken || !roomId) {
@@ -88,23 +87,35 @@ const JoinRooms: React.FC = () => {
         { roomId },
         { headers: { 'auth-token': authToken } }
       );
-      
+
       // Reset current room ID after leaving the room
       setCurrentRoomId(null);
       // Redirect the user to the rooms page or home page
       navigate('/');
     } catch (err) {
-      setError(
-        axios.isAxiosError(err) && err.response
-          ? err.response.data.message || 'Failed to leave room'
-          : 'Failed to leave room'
-      );
+      if (axios.isAxiosError(err) && err.response) {
+        // Handle specific error when the user is not in the room
+        if (err.response.status === 400 && err.response.data.message === 'You are not in the room') {
+          // Show a popup with the error message
+          setErrorMessage('You need to join a room first to leave it.');
+          setShowModal(true); // This will trigger the modal to appear
+        } else {
+          setError(err.response.data.message || 'Failed to leave room');
+        }
+      } else {
+        setError('Failed to leave room');
+      }
     }
   };
 
   const openPasswordModal = (roomId: string) => {
     setSelectedRoomId(roomId);
     setShowModal(true);
+  };
+
+  const closeModal = () => {
+    setShowModal(false); // Close the modal when "Close" button is clicked
+    setErrorMessage(''); // Optionally reset error message when modal is closed
   };
 
   if (loading) {
@@ -138,14 +149,13 @@ const JoinRooms: React.FC = () => {
                     >
                       Join Room
                     </button>
-                    
-                      <button
-                        onClick={() => handleLeaveRoom(room._id)}
-                        className="mt-4 ml-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                      >
-                        Leave Room
-                      </button>
-                    
+
+                    <button
+                      onClick={() => handleLeaveRoom(room._id)}
+                      className="mt-4 ml-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                    >
+                      Leave Room
+                    </button>
                   </>
                 ) : (
                   <p className="mt-4 text-red-500">You need to log in to join a room</p>
@@ -170,7 +180,7 @@ const JoinRooms: React.FC = () => {
               />
               <div className="flex justify-between">
                 <button
-                  onClick={() => setShowModal(false)}
+                  onClick={closeModal}
                   className="px-4 py-2 bg-gray-300 text-black rounded hover:bg-gray-400"
                 >
                   Cancel
@@ -180,6 +190,23 @@ const JoinRooms: React.FC = () => {
                   className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                 >
                   Join Room
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {errorMessage && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center">
+            <div className="bg-white p-6 rounded-lg w-80">
+              <h3 className="text-xl font-semibold text-gray-700 mb-4">Error</h3>
+              <p className="text-gray-700 mb-4">{errorMessage}</p>
+              <div className="flex justify-between">
+                <button
+                  onClick={closeModal}
+                  className="px-4 py-2 bg-gray-300 text-black rounded hover:bg-gray-400"
+                >
+                  Close
                 </button>
               </div>
             </div>
