@@ -20,6 +20,7 @@ const JoinRooms: React.FC = () => {
   const [password, setPassword] = useState<string>('');
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState<boolean>(false);
+  const [currentRoomId, setCurrentRoomId] = useState<string | null>(null); // To keep track of the current room the user is in
 
   const authToken = localStorage.getItem('auth-token');
   const navigate = useNavigate();
@@ -51,19 +52,55 @@ const JoinRooms: React.FC = () => {
         { headers: { 'auth-token': authToken } }
       );
   
+      // Set the current room ID after successful join
+      setCurrentRoomId(selectedRoomId);
+  
       // Redirect to the game page with the room ID
       navigate(`/game/${selectedRoomId}`);
+      console.log(currentRoomId)
     } catch (err) {
-      setError(
-        axios.isAxiosError(err) && err.response
-          ? err.response.data.message || 'Failed to join room'
-          : 'Failed to join room'
-      );
+      if (axios.isAxiosError(err) && err.response) {
+        // Handle specific error when the user is already in the room
+        if (err.response.status === 400 && err.response.data.message === 'User is already in the room') {
+          setError('You are already in this room');
+          navigate(`/game/${selectedRoomId}`); // Redirect to the game page
+        } else {
+          setError(err.response.data.message || 'Failed to join room');
+        }
+      } else {
+        setError('Failed to join room');
+      }
     }
   
     setShowModal(false);
   };
   
+
+  const handleLeaveRoom = async (roomId: string) => {
+    if (!authToken || !roomId) {
+      setError('You need to log in to leave the room');
+      return;
+    }
+
+    try {
+      await axios.post(
+        'http://localhost:5000/api/rooms/leave',
+        { roomId },
+        { headers: { 'auth-token': authToken } }
+      );
+      
+      // Reset current room ID after leaving the room
+      setCurrentRoomId(null);
+      // Redirect the user to the rooms page or home page
+      navigate('/');
+    } catch (err) {
+      setError(
+        axios.isAxiosError(err) && err.response
+          ? err.response.data.message || 'Failed to leave room'
+          : 'Failed to leave room'
+      );
+    }
+  };
 
   const openPasswordModal = (roomId: string) => {
     setSelectedRoomId(roomId);
@@ -94,12 +131,22 @@ const JoinRooms: React.FC = () => {
                 <p className="text-gray-600 mt-3">Players: {room.players.length}</p>
 
                 {authToken ? (
-                  <button
-                    onClick={() => openPasswordModal(room._id)}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-                  >
-                    Join Room
-                  </button>
+                  <>
+                    <button
+                      onClick={() => openPasswordModal(room._id)}
+                      className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+                    >
+                      Join Room
+                    </button>
+                    
+                      <button
+                        onClick={() => handleLeaveRoom(room._id)}
+                        className="mt-4 ml-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                      >
+                        Leave Room
+                      </button>
+                    
+                  </>
                 ) : (
                   <p className="mt-4 text-red-500">You need to log in to join a room</p>
                 )}

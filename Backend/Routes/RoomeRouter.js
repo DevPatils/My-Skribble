@@ -103,17 +103,23 @@ roomrouter.post('/join', verifyToken, async (req, res) => {
 
 // Leave a room (with Socket.IO integration)
 roomrouter.post('/leave', verifyToken, async (req, res) => {
-  const { roomName, userId } = req.body;
+  const { roomId } = req.body; // Use roomId instead of roomName
+  const { userId } = req; // Extract userId from the request object (set by verifyToken middleware)
 
-  if (!roomName || !userId) {
-    return res.status(400).json({ message: 'Room name and user ID are required' });
+  if (!roomId || !userId) {
+    return res.status(400).json({ message: 'Room ID and user ID are required' });
   }
 
   try {
-    // Find the room
-    const room = await Room.findOne({ roomName });
+    // Find the room by roomId
+    const room = await Room.findOne({ _id: roomId }); // Use _id to find the room by roomId
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
+    }
+
+    // Check if the user is in the room
+    if (!room.players.includes(userId)) {
+      return res.status(400).json({ message: 'You are not in the room' });
     }
 
     // Remove the user from the room
@@ -123,8 +129,8 @@ roomrouter.post('/leave', verifyToken, async (req, res) => {
     // Emit to the room via Socket.IO that the user left
     const socket = req.app.get('io').sockets.sockets.get(userId);
     if (socket) {
-      socket.leave(roomName);
-      req.app.get('io').to(roomName).emit('message', `${socket.id} has left the room`);
+      socket.leave(roomId); // Use roomId in the socket.leave()
+      req.app.get('io').to(roomId).emit('message', `${socket.id} has left the room`);
     }
 
     res.status(200).json({ message: 'User left the room successfully' });
@@ -138,12 +144,12 @@ roomrouter.post('/leave', verifyToken, async (req, res) => {
 
 
 // Get room details (players and current state)
-roomrouter.get('getroom/:id', verifyToken, async (req, res) => {
+roomrouter.get('/getroom/:id', verifyToken, async (req, res) => {
   const { id } = req.params;
 
   try {
     // Find the room and populate the players
-    const room = await Room.findOne({ id }).populate('players', 'username');
+    const room = await Room.findOne({ _id: id }).populate('players', 'username');
     if (!room) {
       return res.status(404).json({ message: 'Room not found' });
     }
@@ -154,6 +160,7 @@ roomrouter.get('getroom/:id', verifyToken, async (req, res) => {
     res.status(500).json({ message: 'Server error' });
   }
 });
+
 
 
 
